@@ -19,6 +19,9 @@ when exporting, tick enable the 'Inverted Bones Fix', and ALWAYS disable the 'Ad
 
 
 Huge thanks to: 
+
 Salt (Providing a list with the inverted bones)
+
 Njaecha (Code optimization and managing the github files)
+
 Heuwu (Helped on editing instructions in Readme page)
