@@ -3,16 +3,18 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 bl_info = {
-    "name": "FBX format",
-    "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem",
-    "version": (5, 12, 7),
-    "blender": (4, 2, 0),
-    "location": "File > Import-Export",
-    "description": "FBX IO meshes, UVs, vertex colors, materials, textures, cameras, lamps and actions",
+    "name": "FBX 格式",
+    # This is now displayed as the maintainer, so show the foundation.
+    # "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem", # Original Authors
+    "author": "Blender Foundation",
+    "version": (5, 15, 0),
+    "blender": (5, 0, 0),
+    "location": "文件 > 导入-导出",
+    "description": "FBX 网格、UV、顶点颜色、材质、纹理、相机、灯光和动作的导入导出",
     "warning": "",
     "doc_url": "{BLENDER_MANUAL_URL}/addons/import_export/scene_fbx.html",
     "support": 'OFFICIAL',
-    "category": "Import-Export",
+    "category": "导入-导出",
 }
 
 
@@ -45,153 +47,202 @@ from bpy_extras.io_utils import (
 )
 
 
+def get_stellar_blade_json_list(self, context):
+    items = []
+    json_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sb-json")
+
+    if not os.path.isdir(json_dir):
+        return [("NONE", "未找到 .json 文件夹", "", 0)]
+
+    try:
+        for index, filename in enumerate(sorted(os.listdir(json_dir))):
+            if filename.lower().endswith(".json"):
+                name = os.path.splitext(filename)[0]
+                items.append((name, name, filename, index))
+
+        if not items:
+            items = [("NONE", "未找到 .json 文件", "", 0)]
+    except OSError as ex:
+        items = [("ERROR", f"读取文件夹出错：{ex}", "", 0)]
+
+    return items
+
+
+class OT_OpenStellarBladeFolder(bpy.types.Operator):
+    bl_idname = "wm.open_stellarblade_folder"
+    bl_label = "在资源管理器中显示"
+    bl_description = "打开包含剑星骨骼 .json 文件的文件夹"
+
+    def execute(self, context):
+        json_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sb-json")
+
+        if not os.path.isdir(json_dir):
+            self.report({'ERROR'}, "未找到 'sb-json' 文件夹。")
+            return {'CANCELLED'}
+
+        os.startfile(json_dir)
+        return {'FINISHED'}
+
+
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportFBX(bpy.types.Operator, ImportHelper):
-    """Load a FBX file"""
+    """加载 FBX 文件"""
     bl_idname = "import_scene.fbx"
-    bl_label = "Import FBX"
+    bl_label = "导入 FBX"
     bl_options = {'UNDO', 'PRESET'}
 
-    directory: StringProperty()
+    directory: StringProperty(
+        subtype='DIR_PATH',
+        options={'HIDDEN', 'SKIP_PRESET'},
+    )
 
     filename_ext = ".fbx"
     filter_glob: StringProperty(default="*.fbx", options={'HIDDEN'})
 
     files: CollectionProperty(
-        name="File Path",
+        name="文件路径",
         type=bpy.types.OperatorFileListElement,
+        options={'HIDDEN', 'SKIP_PRESET'},
     )
 
     ui_tab: EnumProperty(
-        items=(('MAIN', "Main", "Main basic settings"),
-               ('ARMATURE', "Armatures", "Armature-related settings"),
+        items=(('MAIN', "主要", "主要基础设置"),
+               ('ARMATURE', "骨架", "骨架相关设置"),
                ),
-        name="ui_tab",
-        description="Import options categories",
+        name="界面分类",
+        description="导入选项分类",
     )
 
     use_manual_orientation: BoolProperty(
-        name="Manual Orientation",
-        description="Specify orientation and scale, instead of using embedded data in FBX file",
+        name="手动方向",
+        description="手动指定方向和缩放，而不是使用 FBX 文件中嵌入的数据",
         default=False,
     )
     global_scale: FloatProperty(
-        name="Scale",
+        name="缩放",
         min=0.001, max=1000.0,
         default=1.0,
     )
     bake_space_transform: BoolProperty(
-        name="Apply Transform",
-        description="Bake space transform into object data, avoids getting unwanted rotations to objects when "
-        "target space is not aligned with Blender's space "
-        "(WARNING! experimental option, use at own risk, known to be broken with armatures/animations)",
+        name="应用变换",
+        description="将空间变换烘焙进对象数据，避免目标空间与 Blender 空间不一致时产生不需要的旋转"
+        "（警告：实验选项，风险自负，已知会破坏骨架/动画）",
         default=False,
     )
 
     use_custom_normals: BoolProperty(
-        name="Custom Normals",
-        description="Import custom normals, if available (otherwise Blender will recompute them)",
+        name="自定义法线",
+        description="如果可用则导入自定义法线，否则由 Blender 重新计算",
         default=True,
     )
     colors_type: EnumProperty(
-        name="Vertex Colors",
-        items=(('NONE', "None", "Do not import color attributes"),
-               ('SRGB', "sRGB", "Expect file colors in sRGB color space"),
-               ('LINEAR', "Linear", "Expect file colors in linear color space"),
+        name="顶点颜色",
+        items=(('NONE', "无", "不导入颜色属性"),
+               ('SRGB', "sRGB", "按 sRGB 色彩空间读取文件颜色"),
+               ('LINEAR', "线性", "按线性色彩空间读取文件颜色"),
                ),
-        description="Import vertex color attributes",
+        description="导入顶点颜色属性",
         default='SRGB',
     )
 
     use_image_search: BoolProperty(
-        name="Image Search",
-        description="Search subdirs for any associated images (WARNING: may be slow)",
+        name="搜索图像",
+        description="在子目录中搜索关联图像（警告：可能较慢）",
         default=True,
     )
 
     use_alpha_decals: BoolProperty(
-        name="Alpha Decals",
-        description="Treat materials with alpha as decals (no shadow casting)",
+        name="Alpha 贴花",
+        description="将带 Alpha 的材质视为贴花（不投射阴影）",
         default=False,
     )
     decal_offset: FloatProperty(
-        name="Decal Offset",
-        description="Displace geometry of alpha meshes",
+        name="贴花偏移",
+        description="偏移 Alpha 网格的几何体",
         min=0.0, max=1.0,
         default=0.0,
     )
 
     use_anim: BoolProperty(
-        name="Import Animation",
-        description="Import FBX animation",
+        name="导入动画",
+        description="导入 FBX 动画",
         default=True,
     )
     anim_offset: FloatProperty(
-        name="Animation Offset",
-        description="Offset to apply to animation during import, in frames",
+        name="动画偏移",
+        description="导入时应用到动画的偏移量，单位为帧",
         default=1.0,
     )
 
     use_subsurf: BoolProperty(
-        name="Subdivision Data",
-        description="Import FBX subdivision information as subdivision surface modifiers",
+        name="细分数据",
+        description="将 FBX 细分信息作为细分曲面修改器导入",
         default=False,
     )
 
     use_custom_props: BoolProperty(
-        name="Custom Properties",
-        description="Import user properties as custom properties",
+        name="自定义属性",
+        description="将用户属性作为自定义属性导入",
         default=True,
     )
     use_custom_props_enum_as_string: BoolProperty(
-        name="Import Enums As Strings",
-        description="Store enumeration values as strings",
+        name="枚举按字符串导入",
+        description="将枚举值存储为字符串",
         default=True,
     )
 
     ignore_leaf_bones: BoolProperty(
-        name="Ignore Leaf Bones",
-        description="Ignore the last bone at the end of each chain (used to mark the length of the previous bone)",
+        name="忽略末端骨骼",
+        description="忽略每条骨骼链末端的最后一根骨骼（用于标记上一根骨骼长度）",
         default=False,
     )
     force_connect_children: BoolProperty(
-        name="Force Connect Children",
-        description="Force connection of children bones to their parent, even if their computed head/tail "
-        "positions do not match (can be useful with pure-joints-type armatures)",
+        name="强制连接子骨骼",
+        description="即使计算出的头尾位置不匹配，也强制将子骨骼连接到父骨骼"
+        "（对纯关节类型骨架可能有用）",
         default=False,
     )
     automatic_bone_orientation: BoolProperty(
-        name="Automatic Bone Orientation",
-        description="Try to align the major bone axis with the bone children",
+        name="自动骨骼方向",
+        description="尝试将主要骨骼轴与子骨骼对齐",
         default=False,
     )
     primary_bone_axis: EnumProperty(
-        name="Primary Bone Axis",
-        items=(('X', "X Axis", ""),
-               ('Y', "Y Axis", ""),
-               ('Z', "Z Axis", ""),
-               ('-X', "-X Axis", ""),
-               ('-Y', "-Y Axis", ""),
-               ('-Z', "-Z Axis", ""),
+        name="主骨骼轴",
+        items=(('X', "X 轴", ""),
+               ('Y', "Y 轴", ""),
+               ('Z', "Z 轴", ""),
+               ('-X', "-X 轴", ""),
+               ('-Y', "-Y 轴", ""),
+               ('-Z', "-Z 轴", ""),
                ),
         default='Y',
     )
     secondary_bone_axis: EnumProperty(
-        name="Secondary Bone Axis",
-        items=(('X', "X Axis", ""),
-               ('Y', "Y Axis", ""),
-               ('Z', "Z Axis", ""),
-               ('-X', "-X Axis", ""),
-               ('-Y', "-Y Axis", ""),
-               ('-Z', "-Z Axis", ""),
+        name="次骨骼轴",
+        items=(('X', "X 轴", ""),
+               ('Y', "Y 轴", ""),
+               ('Z', "Z 轴", ""),
+               ('-X', "-X 轴", ""),
+               ('-Y', "-Y 轴", ""),
+               ('-Z', "-Z 轴", ""),
                ),
         default='X',
     )
 
     use_prepost_rot: BoolProperty(
-        name="Use Pre/Post Rotation",
-        description="Use pre/post rotation from FBX transform (you may have to disable that in some cases)",
+        name="使用前/后旋转",
+        description="使用 FBX 变换中的前/后旋转（某些情况下可能需要禁用）",
         default=True,
+    )
+    mtl_name_collision_mode: EnumProperty(
+        name="材质名称冲突",
+        items=(("MAKE_UNIQUE", "设为唯一", "将每个 FBX 材质作为唯一的 Blender 材质导入"),
+               ("REFERENCE_EXISTING", "引用已有材质",
+               "如果已存在同名材质，则引用已有材质而不是重新导入"),
+               ),
+        default='MAKE_UNIQUE',
+        description="导入材质名称与已有材质冲突时的处理方式",
     )
 
     def draw(self, context):
@@ -201,6 +252,7 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
 
         import_panel_include(layout, self)
         import_panel_transform(layout, self)
+        import_panel_materials(layout, self)
         import_panel_animation(layout, self)
         import_panel_armature(layout, self)
 
@@ -212,9 +264,8 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
 
         if self.files:
             ret = {'CANCELLED'}
-            dirname = os.path.dirname(self.filepath)
             for file in self.files:
-                path = os.path.join(dirname, file.name)
+                path = os.path.join(self.directory, file.name)
                 if import_fbx.load(self, context, filepath=path, **keywords) == {'FINISHED'}:
                     ret = {'FINISHED'}
             return ret
@@ -227,7 +278,7 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
 
 def import_panel_include(layout, operator):
     header, body = layout.panel("FBX_import_include", default_closed=False)
-    header.label(text="Include")
+    header.label(text="??")
     if body:
         body.prop(operator, "use_custom_normals")
         body.prop(operator, "use_subsurf")
@@ -241,7 +292,7 @@ def import_panel_include(layout, operator):
 
 def import_panel_transform(layout, operator):
     header, body = layout.panel("FBX_import_transform", default_closed=False)
-    header.label(text="Transform")
+    header.label(text="??")
     if body:
         body.prop(operator, "global_scale")
         body.prop(operator, "decal_offset")
@@ -257,18 +308,25 @@ def import_panel_transform_orientation(layout, operator):
     header, body = layout.panel("FBX_import_transform_manual_orientation", default_closed=False)
     header.use_property_split = False
     header.prop(operator, "use_manual_orientation", text="")
-    header.label(text="Manual Orientation")
+    header.label(text="????")
     if body:
         body.enabled = operator.use_manual_orientation
         body.prop(operator, "axis_forward")
         body.prop(operator, "axis_up")
 
 
+def import_panel_materials(layout, operator):
+    header, body = layout.panel("FBX_import_material", default_closed=True)
+    header.label(text="??")
+    if body:
+        body.prop(operator, "mtl_name_collision_mode")
+
+
 def import_panel_animation(layout, operator):
     header, body = layout.panel("FBX_import_animation", default_closed=True)
     header.use_property_split = False
     header.prop(operator, "use_anim", text="")
-    header.label(text="Animation")
+    header.label(text="??")
     if body:
         body.enabled = operator.use_anim
         body.prop(operator, "anim_offset")
@@ -276,7 +334,7 @@ def import_panel_animation(layout, operator):
 
 def import_panel_armature(layout, operator):
     header, body = layout.panel("FBX_import_armature", default_closed=True)
-    header.label(text="Armature")
+    header.label(text="??")
     if body:
         body.prop(operator, "ignore_leaf_bones")
         body.prop(operator, "force_connect_children"),
@@ -287,69 +345,11 @@ def import_panel_armature(layout, operator):
         sub.prop(operator, "secondary_bone_axis")
 
 
-# Export Shit ===================================================================================
-
-
-
-def get_stellar_blade_json_list(self, context):
-    items = []
-
-    # Get the path to the folder where the script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_dir = os.path.join(script_dir, "sb-json")
-
-    if not os.path.isdir(json_dir):
-        return [("NONE", "No .json folder", "", 0)]
-
-    try:
-        json_files = [f for f in os.listdir(json_dir) if f.lower().endswith(".json")]
-        if not json_files:
-            return [("NONE", "No .json files found", "", 0)]
-
-        preferred_file = "CH_P_EVE_01_Skeleton.json"
-        sorted_files = []
-
-        if preferred_file in json_files:
-            sorted_files.append(preferred_file)
-            json_files.remove(preferred_file)
-
-        sorted_files += sorted(json_files)
-
-        for i, filename in enumerate(sorted_files):
-            name = os.path.splitext(filename)[0]
-            items.append((name, name, f"Skeleton file: {filename}", i))
-
-    except Exception as e:
-        items = [("ERROR", f"Error reading folder: {e}", "", 0)]
-
-    return items
-
-class OT_OpenStellarBladeFolder(bpy.types.Operator):
-    bl_idname = "wm.open_stellarblade_folder"
-    bl_label = "Show in Explorer"
-    bl_description = "Open the folder containing Stellar Blade skeleton .json files"
-
-    def execute(self, context):
-        json_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sb-json")
-
-        if not os.path.isdir(json_dir):
-            self.report({'ERROR'}, "Folder 'sb-json' not found.")
-            return {'CANCELLED'}
-
-        try:
-            # Try Windows-style opening first
-            os.startfile(json_dir)
-            return {'FINISHED'}
-        except AttributeError:
-            # os.startfile not available (e.g., Linux, macOS)
-            self.report({'ERROR'}, "Opening folders is only supported on Windows.")
-            return {'CANCELLED'}
-
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ExportFBX(bpy.types.Operator, ExportHelper):
-    """Write a FBX file"""
+    """写出 FBX 文件"""
     bl_idname = "export_scene.fbx"
-    bl_label = "Export FBX"
+    bl_label = "导出 FBX"
     bl_options = {'UNDO', 'PRESET'}
 
     filename_ext = ".fbx"
@@ -359,274 +359,268 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
     # to the class instance from the operator settings before calling.
 
     use_selection: BoolProperty(
-        name="Selected Objects",
-        description="Export selected and visible objects only",
+        name="选中对象",
+        description="仅导出已选中且可见的对象",
         default=False,
     )
     use_visible: BoolProperty(
-        name='Visible Objects',
-        description='Export visible objects only',
+        name='可见对象',
+        description='仅导出可见对象',
         default=False
     )
     use_active_collection: BoolProperty(
-        name="Active Collection",
-        description="Export only objects from the active collection (and its children)",
+        name="活动集合",
+        description="仅导出活动集合及其子集合中的对象",
         default=False,
     )
     collection: StringProperty(
-        name="Source Collection",
-        description="Export only objects from this collection (and its children)",
+        name="源集合",
+        description="仅导出此集合及其子集合中的对象",
         default="",
     )
     global_scale: FloatProperty(
-        name="Scale",
-        description="Scale all data (Some importers do not support scaled armatures!)",
+        name="缩放",
+        description="缩放所有数据（某些导入器不支持缩放后的骨架！）",
         min=0.001, max=1000.0,
         soft_min=0.01, soft_max=1000.0,
         default=1.0,
     )
     apply_unit_scale: BoolProperty(
-        name="Apply Unit",
-        description="Take into account current Blender units settings (if unset, raw Blender Units values are used as-is)",
+        name="应用单位",
+        description=(
+            "考虑当前 Blender 单位设置"
+            "（若未设置，则直接使用原始 Blender 单位值）"
+        ),
         default=True,
     )
     apply_scale_options: EnumProperty(
-        items=(('FBX_SCALE_NONE', "All Local",
-                "Apply custom scaling and units scaling to each object transformation, FBX scale remains at 1.0"),
-               ('FBX_SCALE_UNITS', "FBX Units Scale",
-                "Apply custom scaling to each object transformation, and units scaling to FBX scale"),
-               ('FBX_SCALE_CUSTOM', "FBX Custom Scale",
-                "Apply custom scaling to FBX scale, and units scaling to each object transformation"),
-               ('FBX_SCALE_ALL', "FBX All",
-                "Apply custom scaling and units scaling to FBX scale"),
+        items=(('FBX_SCALE_NONE', "全部局部",
+                "将自定义缩放和单位缩放应用到每个对象变换，FBX 缩放保持 1.0"),
+               ('FBX_SCALE_UNITS', "FBX 单位缩放",
+                "将自定义缩放应用到每个对象变换，将单位缩放应用到 FBX 缩放"),
+               ('FBX_SCALE_CUSTOM', "FBX 自定义缩放",
+                "将自定义缩放应用到 FBX 缩放，将单位缩放应用到每个对象变换"),
+               ('FBX_SCALE_ALL', "FBX 全部缩放",
+                "将自定义缩放和单位缩放应用到 FBX 缩放"),
                ),
-        name="Apply Scalings",
-        description="How to apply custom and units scalings in generated FBX file "
-        "(Blender uses FBX scale to detect units on import, "
-        "but many other applications do not handle the same way)",
+        name="应用缩放方式",
+        description="指定在生成的 FBX 文件中如何应用自定义缩放和单位缩放"
+        "（Blender 会在导入时使用 FBX 缩放检测单位，"
+        "但许多其他应用处理方式不同）",
     )
 
     use_space_transform: BoolProperty(
-        name="Use Space Transform",
-        description="Apply global space transform to the object rotations. When disabled "
-        "only the axis space is written to the file and all object transforms are left as-is",
+        name="使用空间变换",
+        description="将全局空间变换应用到对象旋转。禁用时仅写入轴空间，所有对象变换保持原样",
         default=True,
     )
     bake_space_transform: BoolProperty(
-        name="Apply Transform",
-        description="Bake space transform into object data, avoids getting unwanted rotations to objects when "
-        "target space is not aligned with Blender's space "
-        "(WARNING! experimental option, use at own risk, known to be broken with armatures/animations)",
+        name="应用变换",
+        description="将空间变换烘焙进对象数据，避免目标空间与 Blender 空间不一致时产生不需要的旋转"
+        "（警告：实验选项，风险自负，已知会破坏骨架/动画）",
         default=False,
     )
 
     object_types: EnumProperty(
-        name="Object Types",
+        name="对象类型",
         options={'ENUM_FLAG'},
-        items=(('EMPTY', "Empty", ""),
-               ('CAMERA', "Camera", ""),
-               ('LIGHT', "Lamp", ""),
-               ('ARMATURE', "Armature", "WARNING: not supported in dupli/group instances"),
-               ('MESH', "Mesh", ""),
-               ('OTHER', "Other", "Other geometry types, like curve, metaball, etc. (converted to meshes)"),
+        items=(('EMPTY', "空物体", ""),
+               ('CAMERA', "相机", ""),
+               ('LIGHT', "灯光", ""),
+               ('ARMATURE', "骨架", "警告：不支持复制/组实例"),
+               ('MESH', "网格", ""),
+               ('OTHER', "其他", "其他几何类型，如曲线、融球等（会转换为网格）"),
                ),
-        description="Which kind of object to export",
+        description="要导出的对象类型",
         default={'EMPTY', 'CAMERA', 'LIGHT', 'ARMATURE', 'MESH', 'OTHER'},
     )
 
     use_mesh_modifiers: BoolProperty(
-        name="Apply Modifiers",
-        description="Apply modifiers to mesh objects (except Armature ones) - "
-        "WARNING: prevents exporting shape keys",
+        name="应用修改器",
+        description="将修改器应用到网格对象（骨架修改器除外）- 警告：会阻止形态键导出",
         default=True,
     )
     use_mesh_modifiers_render: BoolProperty(
-        name="Use Modifiers Render Setting",
-        description="Use render settings when applying modifiers to mesh objects (DISABLED in Blender 2.8)",
+        name="使用修改器渲染设置",
+        description="应用网格对象修改器时使用渲染设置（Blender 2.8 中已禁用）",
         default=True,
     )
     mesh_smooth_type: EnumProperty(
-        name="Smoothing",
-        items=(('OFF', "Normals Only", "Export only normals instead of writing edge or face smoothing data"),
-               ('FACE', "Face", "Write face smoothing"),
-               ('EDGE', "Edge", "Write edge smoothing"),
+        name="平滑",
+        items=(('OFF', "仅法线", "仅导出法线，不写入边或面的平滑数据"),
+               ('FACE', "面", "写入面平滑"),
+               ('EDGE', "边", "写入边平滑"),
+               ('SMOOTH_GROUP', "平滑组", "写入面平滑组"),
                ),
-        description="Export smoothing information "
-        "(prefer 'Normals Only' option if your target importer understand split normals)",
+        description="导出平滑信息"
+        "（如果目标导入器支持自定义法线，优先使用“仅法线”）",
         default='OFF',
     )
     colors_type: EnumProperty(
-        name="Vertex Colors",
-        items=(('NONE', "None", "Do not export color attributes"),
-               ('SRGB', "sRGB", "Export colors in sRGB color space"),
-               ('LINEAR', "Linear", "Export colors in linear color space"),
+        name="顶点颜色",
+        items=(('NONE', "无", "不导出颜色属性"),
+               ('SRGB', "sRGB", "按 sRGB 色彩空间导出颜色"),
+               ('LINEAR', "线性", "按线性色彩空间导出颜色"),
                ),
-        description="Export vertex color attributes",
+        description="导出顶点颜色属性",
         default='SRGB',
     )
     prioritize_active_color: BoolProperty(
-        name="Prioritize Active Color",
-        description="Make sure active color will be exported first. Could be important "
-        "since some other software can discard other color attributes besides the first one",
+        name="优先活动颜色",
+        description="确保活动颜色最先导出。某些软件可能会丢弃第一个以外的颜色属性",
         default=False,
     )
     use_subsurf: BoolProperty(
-        name="Export Subdivision Surface",
-        description="Export the last Catmull-Rom subdivision modifier as FBX subdivision "
-        "(does not apply the modifier even if 'Apply Modifiers' is enabled)",
+        name="导出细分曲面",
+        description="将最后一个 Catmull-Rom 细分修改器作为 FBX 细分导出"
+        "（即使启用“应用修改器”，也不会应用该修改器）",
         default=False,
     )
     use_mesh_edges: BoolProperty(
-        name="Loose Edges",
-        description="Export loose edges (as two-vertices polygons)",
+        name="松散边",
+        description="导出松散边（作为双顶点多边形）",
         default=False,
     )
     use_tspace: BoolProperty(
-        name="Tangent Space",
-        description="Add binormal and tangent vectors, together with normal they form the tangent space "
-        "(will only work correctly with tris/quads only meshes!)",
+        name="切线空间",
+        description="添加副法线和切线向量，与法线共同组成切线空间"
+        "（仅对完全由三角形/四边形组成的网格可靠！）",
         default=False,
     )
     use_triangles: BoolProperty(
-        name="Triangulate Faces",
-        description="Convert all faces to triangles",
+        name="三角化面",
+        description="将所有面转换为三角形",
         default=False,
     )
     use_custom_props: BoolProperty(
-        name="Custom Properties",
-        description="Export custom properties",
+        name="自定义属性",
+        description="导出自定义属性",
         default=False,
     )
     add_leaf_bones: BoolProperty(
-        name="Add Leaf Bones",
-        description="Append a final bone to the end of each chain to specify last bone length "
-        "(use this when you intend to edit the armature from exported data)",
+        name="添加末端骨骼",
+        description="在每条骨骼链末端附加一根最终骨骼，用于指定最后一根骨骼长度"
+        "（当你打算从导出的数据编辑骨架时使用）",
         default=True  # False for commit!
     )
     primary_bone_axis: EnumProperty(
-        name="Primary Bone Axis",
-        items=(('X', "X Axis", ""),
-               ('Y', "Y Axis", ""),
-               ('Z', "Z Axis", ""),
-               ('-X', "-X Axis", ""),
-               ('-Y', "-Y Axis", ""),
-               ('-Z', "-Z Axis", ""),
+        name="主骨骼轴",
+        items=(('X', "X 轴", ""),
+               ('Y', "Y 轴", ""),
+               ('Z', "Z 轴", ""),
+               ('-X', "-X 轴", ""),
+               ('-Y', "-Y 轴", ""),
+               ('-Z', "-Z 轴", ""),
                ),
         default='Y',
     )
     secondary_bone_axis: EnumProperty(
-        name="Secondary Bone Axis",
-        items=(('X', "X Axis", ""),
-               ('Y', "Y Axis", ""),
-               ('Z', "Z Axis", ""),
-               ('-X', "-X Axis", ""),
-               ('-Y', "-Y Axis", ""),
-               ('-Z', "-Z Axis", ""),
+        name="次骨骼轴",
+        items=(('X', "X 轴", ""),
+               ('Y', "Y 轴", ""),
+               ('Z', "Z 轴", ""),
+               ('-X', "-X 轴", ""),
+               ('-Y', "-Y 轴", ""),
+               ('-Z', "-Z 轴", ""),
                ),
         default='X',
     )
     use_armature_deform_only: BoolProperty(
-        name="Only Deform Bones",
-        description="Only write deforming bones (and non-deforming ones when they have deforming children)",
+        name="仅变形骨骼",
+        description="仅写入变形骨骼（以及拥有变形子骨骼的非变形骨骼）",
         default=False,
     )
     armature_nodetype: EnumProperty(
-        name="Armature FBXNode Type",
-        items=(('NULL', "Null", "'Null' FBX node, similar to Blender's Empty (default)"),
-               ('ROOT', "Root", "'Root' FBX node, supposed to be the root of chains of bones..."),
-               ('LIMBNODE', "LimbNode", "'LimbNode' FBX node, a regular joint between two bones..."),
+        name="骨架 FBX 节点类型",
+        items=(('NULL', "Null 空节点", "'Null' FBX 节点，类似 Blender 的空物体（默认）"),
+               ('ROOT', "Root 根节点", "'Root' FBX 节点，通常表示骨骼链根节点"),
+               ('LIMBNODE', "LimbNode 肢体节点", "'LimbNode' FBX 节点，表示两根骨骼之间的常规关节"),
                ),
-        description="FBX type of node (object) used to represent Blender's armatures "
-        "(use the Null type unless you experience issues with the other app, "
-        "as other choices may not import back perfectly into Blender...)",
+        description="用于表示 Blender 骨架的 FBX 节点（对象）类型"
+        "（除非目标软件有问题，否则建议使用 Null 类型，"
+        "其他选项可能无法完美导回 Blender）",
         default='NULL',
     )
     bake_anim: BoolProperty(
-        name="Baked Animation",
-        description="Export baked keyframe animation",
+        name="烘焙动画",
+        description="导出烘焙关键帧动画",
         default=True,
     )
     bake_anim_use_all_bones: BoolProperty(
-        name="Key All Bones",
-        description="Force exporting at least one key of animation for all bones "
-        "(needed with some target applications, like UE4)",
+        name="所有骨骼设关键帧",
+        description="强制为所有骨骼至少导出一个动画关键帧"
+        "（某些目标应用需要，例如 UE4）",
         default=True,
     )
     bake_anim_use_nla_strips: BoolProperty(
-        name="NLA Strips",
-        description="Export each non-muted NLA strip as a separated FBX's AnimStack, if any, "
-        "instead of global scene animation",
+        name="NLA 片段",
+        description="如存在未静音的 NLA 片段，则分别导出为独立的 FBX AnimStack，"
+        "而不是全局场景动画",
         default=True,
     )
     bake_anim_use_all_actions: BoolProperty(
-        name="All Actions",
-        description="Export each action as a separated FBX's AnimStack, instead of global scene animation "
-        "(note that animated objects will get all actions compatible with them, "
-        "others will get no animation at all)",
+        name="所有动作",
+        description="将每个动作导出为独立的 FBX AnimStack，而不是全局场景动画"
+        "（注意：有动画的对象会获得所有兼容动作，其他对象不会获得动画）",
         default=True,
     )
     bake_anim_force_startend_keying: BoolProperty(
-        name="Force Start/End Keying",
-        description="Always add a keyframe at start and end of actions for animated channels",
+        name="强制首尾关键帧",
+        description="始终在动画通道的动作开始和结束处添加关键帧",
         default=True,
     )
     bake_anim_step: FloatProperty(
-        name="Sampling Rate",
-        description="How often to evaluate animated values (in frames)",
+        name="采样率",
+        description="动画值的评估频率，单位为帧",
         min=0.01, max=100.0,
         soft_min=0.1, soft_max=10.0,
         default=1.0,
     )
     bake_anim_simplify_factor: FloatProperty(
-        name="Simplify",
-        description="How much to simplify baked values (0.0 to disable, the higher the more simplified)",
+        name="简化",
+        description="烘焙值的简化程度（0.0 表示禁用，数值越高简化越多）",
         min=0.0, max=100.0,  # No simplification to up to 10% of current magnitude tolerance.
         soft_min=0.0, soft_max=10.0,
         default=1.0,  # default: min slope: 0.005, max frame step: 10.
     )
     path_mode: path_reference_mode
     embed_textures: BoolProperty(
-        name="Embed Textures",
-        description="Embed textures in FBX binary file (only for \"Copy\" path mode!)",
+        name="嵌入纹理",
+        description="将纹理嵌入 FBX 二进制文件（仅适用于“复制”路径模式！）",
         default=False,
     )
     batch_mode: EnumProperty(
-        name="Batch Mode",
-        items=(('OFF', "Off", "Active scene to file"),
-               ('SCENE', "Scene", "Each scene as a file"),
-               ('COLLECTION', "Collection",
-                "Each collection (data-block ones) as a file, does not include content of children collections"),
-               ('SCENE_COLLECTION', "Scene Collections",
-                "Each collection (including master, non-data-block ones) of each scene as a file, "
-                "including content from children collections"),
-               ('ACTIVE_SCENE_COLLECTION', "Active Scene Collections",
-                "Each collection (including master, non-data-block one) of the active scene as a file, "
-                "including content from children collections"),
+        name="批量模式",
+        items=(('OFF', "关闭", "将活动场景导出到文件"),
+               ('SCENE', "场景", "每个场景导出为一个文件"),
+               ('COLLECTION', "集合",
+                "每个数据块集合导出为一个文件，不包含子集合内容"),
+               ('SCENE_COLLECTION', "场景集合",
+                "每个场景中的每个集合导出为一个文件，并包含子集合内容"),
+               ('ACTIVE_SCENE_COLLECTION', "活动场景集合",
+                "活动场景中的每个集合导出为一个文件，并包含子集合内容"),
                ),
     )
     use_batch_own_dir: BoolProperty(
-        name="Batch Own Dir",
-        description="Create a dir for each exported file",
+        name="批量独立目录",
+        description="为每个导出的文件创建一个目录",
         default=True,
     )
     use_metadata: BoolProperty(
-        name="Use Metadata",
+        name="使用元数据",
         default=True,
         options={'HIDDEN'},
     )
-
     stellar_blade_fix: BoolProperty(
-        name="Inverted Bones Fix",
-        description="Export with bone inversions needed by Stellar Blade (by Lami21 and Njaecha)",
+        name="倒置骨骼修复",
+        description="导出剑星所需的骨骼反转修复",
         default=False,
     )
-
     stellar_blade_skeleton: EnumProperty(
-        name="Skeleton File",
-        description="Choose a .json skeleton file from the sb-json folder",
-        items=get_stellar_blade_json_list
+        name="骨骼文件",
+        description="从 sb-json 文件夹选择 .json 骨骼文件",
+        items=get_stellar_blade_json_list,
     )
-
 
     def draw(self, context):
         layout = self.layout
@@ -684,9 +678,9 @@ def export_main(layout, operator, is_file_browser):
 
 def export_panel_include(layout, operator, is_file_browser):
     header, body = layout.panel("FBX_export_include", default_closed=False)
-    header.label(text="Include")
+    header.label(text="包含")
     if body:
-        sublayout = body.column(heading="Limit to")
+        sublayout = body.column(heading="限制为")
         sublayout.enabled = (operator.batch_mode == 'OFF')
         if is_file_browser:
             sublayout.prop(operator, "use_selection")
@@ -699,7 +693,7 @@ def export_panel_include(layout, operator, is_file_browser):
 
 def export_panel_transform(layout, operator):
     header, body = layout.panel("FBX_export_transform", default_closed=False)
-    header.label(text="Transform")
+    header.label(text="变换")
     if body:
         body.prop(operator, "global_scale")
         body.prop(operator, "apply_scale_options")
@@ -716,14 +710,14 @@ def export_panel_transform(layout, operator):
 
 def export_panel_geometry(layout, operator):
     header, body = layout.panel("FBX_export_geometry", default_closed=True)
-    header.label(text="Geometry")
+    header.label(text="几何")
     if body:
         body.prop(operator, "mesh_smooth_type")
         body.prop(operator, "use_subsurf")
         body.prop(operator, "use_mesh_modifiers")
-        #sub = body.row()
+        # sub = body.row()
         # sub.enabled = operator.use_mesh_modifiers and False  # disabled in 2.8...
-        #sub.prop(operator, "use_mesh_modifiers_render")
+        # sub.prop(operator, "use_mesh_modifiers_render")
         body.prop(operator, "use_mesh_edges")
         body.prop(operator, "use_triangles")
         sub = body.row()
@@ -735,7 +729,7 @@ def export_panel_geometry(layout, operator):
 
 def export_panel_armature(layout, operator):
     header, body = layout.panel("FBX_export_armature", default_closed=True)
-    header.label(text="Armature")
+    header.label(text="骨架")
     if body:
         body.prop(operator, "primary_bone_axis")
         body.prop(operator, "secondary_bone_axis")
@@ -743,13 +737,46 @@ def export_panel_armature(layout, operator):
         body.prop(operator, "use_armature_deform_only")
         body.prop(operator, "add_leaf_bones")
 
-        
+
+def export_panel_stellar_blade(layout, operator):
+    header, body = layout.panel("FBX_export_stellarblade", default_closed=False)
+    header.label(text="剑星")
+
+    if body:
+        json_items = get_stellar_blade_json_list(operator, bpy.context)
+        has_valid_json = json_items and json_items[0][0] not in {"NONE", "ERROR"}
+
+        if not has_valid_json:
+            row = body.row()
+            row.enabled = False
+            row.prop(operator, "stellar_blade_fix")
+            row = body.row()
+            row.alert = True
+            row.label(text="未找到 .json 骨骼文件。", icon='ERROR')
+            row = body.row()
+            row.enabled = False
+            row.prop(operator, "stellar_blade_skeleton")
+        else:
+            body.prop(operator, "stellar_blade_fix")
+
+            row = body.row(align=True)
+            row.prop(operator, "stellar_blade_skeleton", text=".json 文件")
+            row.operator("wm.open_stellarblade_folder", text="", icon="FILE_FOLDER")
+
+            if operator.stellar_blade_skeleton == 'CH_P_EVE_01_Skeleton':
+                body.label(text="伊芙骨骼 (CH_P_EVE_01_Skeleton)", icon='OUTLINER_OB_ARMATURE')
+            elif operator.stellar_blade_skeleton == 'CH_NPC_01_Skeleton':
+                body.label(text="莉莉骨骼 (CH_NPC_01_Skeleton)", icon='OUTLINER_OB_ARMATURE')
+
+        body.separator()
+        body.label(text="剑星 FBX 修复（Lemi21 与 Njaecha）")
+
 
 def export_panel_animation(layout, operator):
     header, body = layout.panel("FBX_export_bake_animation", default_closed=True)
     header.use_property_split = False
     header.prop(operator, "bake_anim", text="")
-    header.label(text="Animation")
+    header.label(text="动画")
     if body:
         body.enabled = operator.bake_anim
         body.prop(operator, "bake_anim_use_all_bones")
@@ -760,53 +787,8 @@ def export_panel_animation(layout, operator):
         body.prop(operator, "bake_anim_simplify_factor")
 
 
-def export_panel_stellar_blade(layout, operator):
-    header, body = layout.panel("FBX_export_stellarblade", default_closed=False)
-    header.label(text="StellarBlade (v0.4)")
-
-    if body:
-        json_items = get_stellar_blade_json_list(operator, bpy.context)
-        has_valid_json = json_items and not json_items[0][0] in {"NONE", "ERROR"}
-
-        if not has_valid_json:
-            row = body.row()
-            row.enabled = False
-            row.prop(operator, "stellar_blade_fix")
-            row = body.row()
-            row.alert = True
-            row.label(text="No .json skeleton files found.", icon='ERROR')
-            row.alert = False
-            row = body.row()
-            row.enabled = False
-            row.prop(operator, "stellar_blade_skeleton")    
-        else:
-            body.prop(operator, "stellar_blade_fix")
-
-            row = body.row(align=True)
-            row.prop(operator, "stellar_blade_skeleton", text='.json File')
-            row.operator("wm.open_stellarblade_folder", text="", icon="FILE_FOLDER")
-
-            #Known Files
-            if operator.stellar_blade_skeleton == 'CH_P_EVE_01_Skeleton': body.label(text="Eve's Skeleton (CH_P_EVE_01_Skeleton)", icon='OUTLINER_OB_ARMATURE')
-            elif operator.stellar_blade_skeleton == 'CH_NPC_01_Skeleton': body.label(text="Lily's Skeleton (CH_NPC_01_Skeleton)", icon='OUTLINER_OB_ARMATURE')
-
-        body.separator()
-        body.label(text="Stellar Blade FBX Fix (by Lemi21 and Njaecha)")  
-
-class IO_FH_fbx(bpy.types.FileHandler):
-    bl_idname = "IO_FH_fbx"
-    bl_label = "FBX"
-    bl_import_operator = "import_scene.fbx"
-    bl_export_operator = "export_scene.fbx"
-    bl_file_extensions = ".fbx"
-
-    @classmethod
-    def poll_drop(cls, context):
-        return poll_file_object_drop(context)
-
-
 def menu_func_import(self, context):
-    self.layout.operator(ImportFBX.bl_idname, text="FBX (.fbx)")
+    self.layout.operator(ImportFBX.bl_idname, text="FBX (.fbx)（旧版）")
 
 
 def menu_func_export(self, context):
@@ -816,7 +798,6 @@ def menu_func_export(self, context):
 classes = (
     ImportFBX,
     ExportFBX,
-    IO_FH_fbx,
     OT_OpenStellarBladeFolder,
 )
 
