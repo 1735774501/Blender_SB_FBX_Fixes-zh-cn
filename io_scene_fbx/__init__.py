@@ -278,7 +278,7 @@ class ImportFBX(bpy.types.Operator, ImportHelper):
 
 def import_panel_include(layout, operator):
     header, body = layout.panel("FBX_import_include", default_closed=False)
-    header.label(text="??")
+    header.label(text="包含")
     if body:
         body.prop(operator, "use_custom_normals")
         body.prop(operator, "use_subsurf")
@@ -292,7 +292,7 @@ def import_panel_include(layout, operator):
 
 def import_panel_transform(layout, operator):
     header, body = layout.panel("FBX_import_transform", default_closed=False)
-    header.label(text="??")
+    header.label(text="变换")
     if body:
         body.prop(operator, "global_scale")
         body.prop(operator, "decal_offset")
@@ -308,7 +308,7 @@ def import_panel_transform_orientation(layout, operator):
     header, body = layout.panel("FBX_import_transform_manual_orientation", default_closed=False)
     header.use_property_split = False
     header.prop(operator, "use_manual_orientation", text="")
-    header.label(text="????")
+    header.label(text="手动方向")
     if body:
         body.enabled = operator.use_manual_orientation
         body.prop(operator, "axis_forward")
@@ -317,7 +317,7 @@ def import_panel_transform_orientation(layout, operator):
 
 def import_panel_materials(layout, operator):
     header, body = layout.panel("FBX_import_material", default_closed=True)
-    header.label(text="??")
+    header.label(text="材质")
     if body:
         body.prop(operator, "mtl_name_collision_mode")
 
@@ -326,7 +326,7 @@ def import_panel_animation(layout, operator):
     header, body = layout.panel("FBX_import_animation", default_closed=True)
     header.use_property_split = False
     header.prop(operator, "use_anim", text="")
-    header.label(text="??")
+    header.label(text="动画")
     if body:
         body.enabled = operator.use_anim
         body.prop(operator, "anim_offset")
@@ -334,7 +334,7 @@ def import_panel_animation(layout, operator):
 
 def import_panel_armature(layout, operator):
     header, body = layout.panel("FBX_import_armature", default_closed=True)
-    header.label(text="??")
+    header.label(text="骨架")
     if body:
         body.prop(operator, "ignore_leaf_bones")
         body.prop(operator, "force_connect_children"),
