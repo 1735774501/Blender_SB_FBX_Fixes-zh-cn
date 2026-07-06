@@ -498,10 +498,10 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         default=False,
     )
     add_leaf_bones: BoolProperty(
-        name="添加末端骨骼",
+        name="添加叶骨",
         description="在每条骨骼链末端附加一根最终骨骼，用于指定最后一根骨骼长度"
         "（当你打算从导出的数据编辑骨架时使用）",
-        default=True  # False for commit!
+        default=False,
     )
     primary_bone_axis: EnumProperty(
         name="主骨骼轴",
@@ -528,7 +528,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
     use_armature_deform_only: BoolProperty(
         name="仅变形骨骼",
         description="仅写入变形骨骼（以及拥有变形子骨骼的非变形骨骼）",
-        default=False,
+        default=True,
     )
     armature_nodetype: EnumProperty(
         name="骨架 FBX 节点类型",

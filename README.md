@@ -24,7 +24,7 @@
 
 ![2](https://github.com/user-attachments/assets/ae89f655-44c4-4ce8-bca9-38bc4a6d3458)
 
-导出时，启用 `倒置骨骼修复`，并且务必在 `骨架` 选项卡中禁用 `添加末端骨骼`。
+导出时，启用 `倒置骨骼修复`。本仓库默认已在 `骨架` 选项卡中勾选 `仅变形骨骼`，并取消勾选 `添加叶骨`。
 
 ![3](https://github.com/user-attachments/assets/7570ea16-d655-4530-8ce7-33394360191e)
 
